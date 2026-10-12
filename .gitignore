@@ -24,7 +24,6 @@ override.tf.json
 terraform.rc
 
 # Terraform variable files (may contain secrets)
-*.tfvars
 *.tfvars.json
 
 # Docker

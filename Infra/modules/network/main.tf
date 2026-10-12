@@ -31,12 +31,12 @@ module "vpc" {
   single_nat_gateway = var.single_nat_gateway
 
   public_subnet_tags = {
-    "kubernetes.io/role/elb"              = 1
-    "kubernetes.io/cluster/${var.name}"   = "shared"
+    "kubernetes.io/role/elb"            = 1
+    "kubernetes.io/cluster/${var.name}" = "shared"
   }
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb"     = 1
-    "kubernetes.io/cluster/${var.name}"   = "shared"
+    "kubernetes.io/role/internal-elb"   = 1
+    "kubernetes.io/cluster/${var.name}" = "shared"
   }
 }
 

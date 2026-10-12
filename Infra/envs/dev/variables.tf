@@ -1,3 +1,4 @@
+#*************************** Variables for Network Module***************************#
 variable "name" {
   type = string
 }
@@ -25,4 +26,14 @@ variable "database_subnets" {
 variable "single_nat_gateway" {
   type    = bool
   default = true
+}
+#************************************** variables for ECR Module**************************************#
+
+variable "ecr_repositories" {
+  type = list(string)
+}
+
+variable "ecr_force_delete" {
+  type    = bool
+  default = false
 }
