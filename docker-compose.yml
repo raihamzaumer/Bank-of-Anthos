@@ -1,0 +1,142 @@
+x-python-env: &python-env
+  VERSION: ${VERSION}
+  PORT: "8080"
+  LOG_LEVEL: info
+  ENABLE_TRACING: "false"
+  LOCAL_ROUTING_NUM: ${LOCAL_ROUTING_NUM}
+  PUB_KEY_PATH: /keys/jwtRS256.key.pub
+
+x-java-env: &java-env
+  <<: *python-env
+  ENABLE_METRICS: "false"
+  SPRING_DATASOURCE_URL: jdbc:postgresql://ledger-db:5432/${LEDGER_DB_NAME}
+  SPRING_DATASOURCE_USERNAME: ${LEDGER_DB_USER}
+  SPRING_DATASOURCE_PASSWORD: ${LEDGER_DB_PASSWORD}
+
+x-accounts-uri: &accounts-uri
+  ACCOUNTS_DB_URI: postgresql://${ACCOUNTS_DB_USER}:${ACCOUNTS_DB_PASSWORD}@accounts-db:5432/${ACCOUNTS_DB_NAME}
+
+x-pubkey: &pubkey ./keys/jwtRS256.key.pub:/keys/jwtRS256.key.pub:ro
+
+services:
+  # ---------- databases ----------
+  accounts-db:
+    build: ./app/accounts/accounts-db
+    environment:
+      POSTGRES_DB: ${ACCOUNTS_DB_NAME}
+      POSTGRES_USER: ${ACCOUNTS_DB_USER}
+      POSTGRES_PASSWORD: ${ACCOUNTS_DB_PASSWORD}
+      LOCAL_ROUTING_NUM: ${LOCAL_ROUTING_NUM}
+      USE_DEMO_DATA: "True"
+    volumes:
+      - accounts-db-data:/var/lib/postgresql/data
+    healthcheck:
+      # -h 127.0.0.1 forces a TCP check; the temporary init server only listens on the unix socket
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  ledger-db:
+    build: ./app/ledger/ledger-db
+    environment:
+      POSTGRES_DB: ${LEDGER_DB_NAME}
+      POSTGRES_USER: ${LEDGER_DB_USER}
+      POSTGRES_PASSWORD: ${LEDGER_DB_PASSWORD}
+      LOCAL_ROUTING_NUM: ${LOCAL_ROUTING_NUM}
+      USE_DEMO_DATA: "True"
+    volumes:
+      - ledger-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  # ---------- accounts services ----------
+  userservice:
+    build: ./app/accounts/userservice
+    environment:
+      <<: [*python-env, *accounts-uri]
+      TOKEN_EXPIRY_SECONDS: "3600"
+      PRIV_KEY_PATH: /keys/jwtRS256.key
+    volumes:
+      - ./keys/jwtRS256.key:/keys/jwtRS256.key:ro
+      - *pubkey
+    depends_on:
+      accounts-db:
+        condition: service_healthy
+
+  contacts:
+    build: ./app/accounts/contacts
+    environment:
+      <<: [*python-env, *accounts-uri]
+    volumes:
+      - *pubkey
+    depends_on:
+      accounts-db:
+        condition: service_healthy
+
+  # ---------- ledger services ----------
+  balancereader:
+    build: ./app/ledger/balancereader
+    hostname: balancereader-1-local   # dashed hostname avoids the Stackdriver bean crash
+    environment: *java-env
+    volumes:
+      - *pubkey
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+
+  transactionhistory:
+    build: ./app/ledger/transactionhistory
+    hostname: transactionhistory-1-local
+    environment: *java-env
+    volumes:
+      - *pubkey
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+
+  ledgerwriter:
+    build: ./app/ledger/ledgerwriter
+    hostname: ledgerwriter-1-local
+    environment:
+      <<: *java-env
+      BALANCES_API_ADDR: balancereader:8080
+    volumes:
+      - *pubkey
+    depends_on:
+      ledger-db:
+        condition: service_healthy
+      balancereader:
+        condition: service_started
+
+  # ---------- web UI ----------
+  frontend:
+    build: ./app/frontend
+    ports:
+      - "8080:8080"
+    environment:
+      <<: *python-env
+      SCHEME: http
+      USERSERVICE_API_ADDR: userservice:8080
+      CONTACTS_API_ADDR: contacts:8080
+      BALANCES_API_ADDR: balancereader:8080
+      HISTORY_API_ADDR: transactionhistory:8080
+      TRANSACTIONS_API_ADDR: ledgerwriter:8080
+      DEFAULT_USERNAME: testuser
+      DEFAULT_PASSWORD: bankofanthos
+      ENV_PLATFORM: local
+    volumes:
+      - *pubkey
+    depends_on:
+      - userservice
+      - contacts
+      - balancereader
+      - transactionhistory
+      - ledgerwriter
+
+volumes:
+  accounts-db-data:
+  ledger-db-data:
